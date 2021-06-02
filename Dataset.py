@@ -136,8 +136,8 @@ class stackedDataset(Dataset):
 
         noRepDur = max(0, min(total - clipDur, totalFrames - 1 - period*count - halfPeriod*mirror, (period*count * ri(1, 10))//10))
         
-        if total - clipDur - noRepDur < 0:
-            print(f"{total=} {totalFrames=} {mirror=} {clipDur=} {halfPeriod=} {period=} {count=} {noRepDur=}")
+        #if total - clipDur - noRepDur < 0:
+        #    print(f"{total=} {totalFrames=} {mirror=} {clipDur=} {halfPeriod=} {period=} {count=} {noRepDur=}")
         
 
         startFrame = ri(0, total - (clipDur + noRepDur))
