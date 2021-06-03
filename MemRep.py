@@ -2,7 +2,7 @@ import torch, torchvision
 import torch.nn as nn
 import torch.nn.functional as F
 
-from NTM import Memory, ReadHead, WriteHead
+from .NTM import Memory, ReadHead, WriteHead
 
 class X3DBottom(nn.Module):
     def __init__(self):
