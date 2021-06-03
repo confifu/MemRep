@@ -114,6 +114,33 @@ class stackedDataset(Dataset):
         cap.release()
         return frames       
 
+    def padFrames(self, frames, padStart=0, padEnd=0, blankStart = True):
+        #returns 1 + padStart + frames + padEnd
+        #don't use blankStart = True an padStart >0
+        randpath = random.choice(glob.glob(self.synthVidPath))
+        randFrames = self.getFrames(path = randpath)
+
+        newRandFrames = []
+        for i in range(1, padStart + padEnd + 1):
+            newRandFrames.append(randFrames[i * len(randFrames)//(padStart + padEnd)  - 1])
+
+        blankFrame = np.zeros((self.frame_h, self.frame_w, 3), dtype = "uint8")
+
+        if blankStart:
+            retFrames = [blankFrame]
+        else:
+            retFrames = []
+
+        if ri(0, 1):
+            retFrames += [frames[0] for i in range(padStart)] + frames + [frames[-1] for i in range(padEnd)]
+        elif ri(0, 1):
+            retFrames += [blankFrame for i in range(padStart)] + frames + [blankFrame for i in range(padEnd)]
+        else :
+            retFrames += newRandFrames[:padStart] + frames + newRandFrames[padStart:]
+
+        return retFrames
+
+
     def fillWithSynthVid(self):
 
         while True:
@@ -185,10 +212,11 @@ class stackedDataset(Dataset):
         assert len(periodLength) == len(finalFrames), str(len(periodLength)) + " "+str(len(finalFrames))
 
         for i in range(totalFrames - len(finalFrames)):
-            finalFrames.append(np.zeros((self.frame_h, self.frame_w, 3), dtype = "uint8"))
             periodLength.append(0)
+
+        finalFrames = self.padFrames(finalFrames, blankStart=False, padEnd=totalFrames-len(finalFrames))
+
         assert len(periodLength) == len(finalFrames), str(len(periodLength)) + " "+str(len(finalFrames))
-        
         assert len(periodLength) == totalFrames, str(len(periodLength)) + " " + str(totalFrames)
 
         labelStack = periodLength
@@ -214,21 +242,9 @@ class stackedDataset(Dataset):
         a = ri(0, totalFrames - output_len-1)
         b = totalFrames - output_len - a -1
         
-        randpath = random.choice(glob.glob(self.synthVidPath))
-        randFrames = self.getFrames(path = randpath)
-        
-        newRandFrames = []
-        for i in range(1, a + b + 1):
-            newRandFrames.append(randFrames[i * len(randFrames)//(a+b)  - 1])
+        finalFrames = self.padFrames(frames = newFrames, padStart = a, padEnd = b, blankStart=True)
 
-        finalFrames = [np.zeros((self.frame_h, self.frame_w, 3), dtype = "uint8")]
         periodLength = [0]
-        if ri(0, 1):
-            finalFrames += [newFrames[0] for i in range(a)] + newFrames + [newFrames[-1] for i in range(b)]
-           
-        else:
-            finalFrames += newRandFrames[:a] + newFrames + newRandFrames[a:]
-
         period = output_len/count
         if period < 2:
             period = 0
@@ -256,9 +272,11 @@ class stackedDataset(Dataset):
                 periodLength[i] = 0
         
         totalFrames = self.length * self.framePerVid
+
         for i in range(totalFrames - len(finalFrames)):
-            finalFrames.append(np.zeros((self.frame_h, self.frame_w, 3), dtype = "uint8"))
             periodLength.append(0)
+
+        finalFrames = self.padFrames(finalFrames, padEnd = totalFrames-len(finalFrames), blankStart=False)
 
         labelStack = periodLength
         frameStack = transform(finalFrames, length=len(finalFrames))
