@@ -179,7 +179,7 @@ class MemRep(nn.Module):
         self.transEncoder1 = TransEncoder(d_model=aggsize, n_head=4, dropout = 0.2, dim_ff=aggsize, num_layers = 2)
         self.transEncoder2 = TransEncoder(d_model=aggsize, n_head=4, dropout = 0.2, dim_ff=aggsize, num_layers = 2)
 
-        self.writeHead = WriteHead(self.memory, 128*7, 5)
+        self.writeHead = WriteHead(self.memory, 128*7, self.framePerVid, 5)
 
         #period length prediction
         self.fc1 = nn.ModuleList(
@@ -265,5 +265,5 @@ class MemRep(nn.Module):
         return y1, y2
 
     def init_params(self, batch_size):
-        self.write_focus = self.writeHead.init_state(batch_size, self.framePerVid, self.device)
+        self.write_focus = self.writeHead.init_state(batch_size, self.device)
         self.memory.init_state(batch_size, self.device)

@@ -19,7 +19,7 @@ class Memory(nn.Module):
 
 class WriteHead(nn.Module):
     
-    def __init__(self, memory, hidden_size, max_shift):
+    def __init__(self, memory, hidden_size, fpv, max_shift):
         super(WriteHead, self).__init__()
         self.memory = memory
         self.hidden_size = hidden_size
@@ -29,6 +29,7 @@ class WriteHead(nn.Module):
         self.fc = nn.Linear(hidden_size,
                             sum(s for s, _ in self.hidden_state_unpacking_scheme()))
         #self.init_params()
+        self.write_focus_bias = nn.Parameter(torch.rand(1, fpv, self.memory.num_rows))
 
     def unpack_hidden_state(self, h):
         chunk_idxs, activations = zip(*self.hidden_state_unpacking_scheme())
@@ -72,10 +73,6 @@ class WriteHead(nn.Module):
         w = w.pow(gamma)
         return torch.div(w, w.sum(-1).unsqueeze(-1) + 1e-16)
 
-
-    def init_state(self, batch_size):
-        self.batch_size = batch_size
-
     def hidden_state_unpacking_scheme(self):
         return [
             # size, activation-function
@@ -108,8 +105,7 @@ class WriteHead(nn.Module):
         self.write(w, e, a)
         return w
 
-    def init_state(self, batch_size,fpv, device):
+    def init_state(self, batch_size, device):
         self.batch_size = batch_size
-        write_focus = torch.zeros(batch_size, fpv, self.memory.num_rows).to(device)
-        write_focus[:,:, 0] = 1.
-        return write_focus
+        write_focus = self.write_focus_bias.clone().repeat(batch_size, 1, 1).to(device)
+        return torch.softmax(write_focus, dim=1)
