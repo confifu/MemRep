@@ -75,20 +75,14 @@ class RedundantAttention(nn.Module):
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
-        self.fc_diff1 = nn.ModuleList([nn.Linear(embedSize, embedSize//2),
-                                nn.Linear(embedSize//2, embedSize//4),
+        self.fc_diff1 = nn.ModuleList([nn.Linear(embedSize, embedSize//4),
                                 nn.Dropout(dropout),
-                                nn.Linear(embedSize//4, embedSize//8),
-                                nn.Dropout(dropout),
-                                nn.Linear(embedSize//8, 1)
+                                nn.Linear(embedSize//4, 1)
                             ])
 
-        self.fc_diff2 = nn.ModuleList([nn.Linear(embedSize, embedSize//2),
-                                nn.Linear(embedSize//2, embedSize//4),
+        self.fc_diff2 = nn.ModuleList([nn.Linear(embedSize, embedSize//4),
                                 nn.Dropout(dropout),
-                                nn.Linear(embedSize//4, embedSize//8),
-                                nn.Dropout(dropout),
-                                nn.Linear(embedSize//8, 1)
+                                nn.Linear(embedSize//4, 1)
                             ])
 
     def forward(self, x, offset = 0):
@@ -175,38 +169,22 @@ class MemRep(nn.Module):
         self.attnProj = nn.Linear(convOutShape, 128)
         self.diffProj = nn.Linear((self.framePerVid + 10)*2*numRA, 128)
 
-        aggsize = 128*3
-        self.transEncoder1 = TransEncoder(d_model=aggsize, n_head=4, dropout = 0.2, dim_ff=aggsize, num_layers = 2)
-        self.transEncoder2 = TransEncoder(d_model=aggsize, n_head=4, dropout = 0.2, dim_ff=aggsize, num_layers = 2)
+        self.aggProj = nn.Linear(128*3, 128)
+        self.transEncoder1 = TransEncoder(d_model=128, n_head=2, dropout = 0.2, dim_ff=128, num_layers = 1)
+        self.transEncoder2 = TransEncoder(d_model=128, n_head=2, dropout = 0.2, dim_ff=128, num_layers = 1)
 
-        self.writeHead = WriteHead(self.memory, 128*7, self.framePerVid, 5)
+        self.writeHead = WriteHead(self.memory, 128*3, self.framePerVid, 5)
 
         #period length prediction
         self.fc1 = nn.ModuleList(
-            [nn.Linear(aggsize, 128*3),
-            nn.Dropout(0.1),
-            nn.LayerNorm(128*3),
-            nn.Linear(128*3, 128*2),
-            nn.LayerNorm(128*2),
-            nn.Linear(128*2, 128),
-            nn.Linear(128, 64),
-            nn.LayerNorm(64),
-            nn.Linear(64, self.framePerVid//2),
+            [nn.Linear(128, self.framePerVid//2),
             nn.LayerNorm(self.framePerVid//2),
             nn.Linear(self.framePerVid//2, 1),
             ])
 
         #periodicity prediction
         self.fc2 = nn.ModuleList(
-            [nn.Linear(aggsize, 128*3),
-            nn.Dropout(0.1),
-            nn.LayerNorm(128*3),
-            nn.Linear(128*3, 128*2),
-            nn.LayerNorm(128*2),
-            nn.Linear(128*2, 128),
-            nn.Linear(128, 64),
-            nn.LayerNorm(64),
-            nn.Linear(64, self.framePerVid//2),
+            [nn.Linear(128, self.framePerVid//2),
             nn.LayerNorm(self.framePerVid//2),
             nn.Linear(self.framePerVid//2, 1),
             ])
@@ -242,6 +220,7 @@ class MemRep(nn.Module):
         attn = F.relu(self.attnProj(attn))
 
         x_agg = torch.cat([x, attn, x_diff], dim = -1)
+        x_agg = F.relu(self.aggProj(x_agg))
         x_agg = x_agg.transpose(0, 1)
 
         x1 = self.transEncoder1(x_agg)
