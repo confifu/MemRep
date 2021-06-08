@@ -88,7 +88,10 @@ class stackedDataset(Dataset):
         #=====================Blender Setup
         self.annotPrefix = blenderAnnotDir
         self.vidPrefix = blenderVidDir
-        self.blenderVideos =  list(glob.glob(blenderVidDir + '/*.mkv'))
+        if blenderVidDir is None:
+            self.blenderVideos = []
+        else:
+            self.blenderVideos =  list(glob.glob(blenderVidDir + '/*.mkv'))
         self.blenderIndex = 0
 
         #=====================Synthetic Setup
@@ -291,8 +294,12 @@ class stackedDataset(Dataset):
 
         if isSynth and self.synthVidPath is not None:
             #=============synth
-            self.length = ri(1, 5)
-            return self.fillWithSynthVid()
+            self.length = ri(1, 300//self.framePerVid)
+            while True:
+                try :
+                    return self.fillWithSynthVid()
+                except:
+                    pass
 
         elif isBlender:
             vidPath = self.blenderVideos[self.blenderIndex]
