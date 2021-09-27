@@ -10,8 +10,6 @@ from PIL import Image
 from torchvision import transforms
 import torch
 
-from threading import Thread
-
 
 def getRandomTransformParameter(high, mid, low, length = 64):
     retarr = []
@@ -54,7 +52,11 @@ def transform(frames, randomize = False, length=64):
     return newFrames
 
 
-'''Takes a vidPath, and creates a random length minidataset from it with fixed frames per vid.'''
+'''
+- Creates a combined dataset from countix, synthetic and blender datasets.
+- Returns frames which are multiples of "framePerVid".
+- First frame is always blank (zeros)
+'''
 class stackedDataset(Dataset):
 
     def __init__(self,
@@ -69,7 +71,7 @@ class stackedDataset(Dataset):
 
         super().__init__()
 
-         #=====================Countix Setup
+         #=====================Countix Setup==========================
         self.df = None
         if countixDir is not None and countixPrefix is not None:
             df = pd.read_csv(dfPath)
@@ -83,22 +85,20 @@ class stackedDataset(Dataset):
                     files_present.append(i)
 
             self.df = df.iloc[files_present]
-            self.countixIndex = 0
 
-        #=====================Blender Setup
+        #=====================Blender Setup==========================
         self.annotPrefix = blenderAnnotDir
         self.vidPrefix = blenderVidDir
         if blenderVidDir is None:
             self.blenderVideos = []
         else:
             self.blenderVideos =  list(glob.glob(blenderVidDir + '/*.mkv'))
-        self.blenderIndex = 0
 
-        #=====================Synthetic Setup
+        #=====================Synthetic Setup========================
         self.synthVidPath = synthDir
         self.synthSize = synthSize
 
-        #=====================General Setup====
+        #=====================General Setup==========================
         self.framePerVid = framePerVid
         self.frame_h = 182
         self.frame_w = 182
@@ -117,9 +117,25 @@ class stackedDataset(Dataset):
         cap.release()
         return frames       
 
-    def padFrames(self, frames, padStart=0, padEnd=0, blankStart = True):
-        #returns 1 + padStart + frames + padEnd
-        #don't use blankStart = True an padStart >0
+    def padFrames(self, frames, padStart=1, padEnd=0, blankStart = True):
+        '''
+        returns 1 + padStart + frames + padEnd
+        
+        blankStart : Starts with a zero frame
+        padStart, padEnd : pad random frames from a random video
+        don't use blankStart = True and padStart >0
+        
+        '''
+
+        blankFrame = np.zeros((self.frame_h, self.frame_w, 3), dtype = "uint8")
+
+        if blankStart:
+            retFrames = [blankFrame]
+            assert padStart >= 1, str(padStart)
+            padStart = padStart - 1
+        else:
+            retFrames = []
+
         randpath = random.choice(glob.glob(self.synthVidPath))
         randFrames = self.getFrames(path = randpath)
 
@@ -127,20 +143,15 @@ class stackedDataset(Dataset):
         for i in range(1, padStart + padEnd + 1):
             newRandFrames.append(randFrames[i * len(randFrames)//(padStart + padEnd)  - 1])
 
-        blankFrame = np.zeros((self.frame_h, self.frame_w, 3), dtype = "uint8")
-
-        if blankStart:
-            retFrames = [blankFrame]
-        else:
-            retFrames = []
-
-        if ri(0, 1):
+        #each of the events has 1/3 probability
+        if not ri(0, 2):
             retFrames += [frames[0] for i in range(padStart)] + frames + [frames[-1] for i in range(padEnd)]
         elif ri(0, 1):
             retFrames += [blankFrame for i in range(padStart)] + frames + [blankFrame for i in range(padEnd)]
         else :
             retFrames += newRandFrames[:padStart] + frames + newRandFrames[padStart:]
 
+        assert blankStart + padStart + len(frames) + padEnd == len(retFrames), str(blankStart + padStart + len(frames) + padEnd) + " " + str(len(retFrames))
         return retFrames
 
 
@@ -155,15 +166,15 @@ class stackedDataset(Dataset):
             if total > 1:
                 break
         
-        totalFrames = self.length * self.framePerVid
+        totalFramesReq = self.numFramePerVid * self.framePerVid
         mirror = ri(0,1)
-        clipDur = ri(15, min([30, total, (totalFrames-1)//(mirror + 1)]))
+        clipDur = ri(15, min([30, total, (totalFramesReq-1)//(mirror + 1)]))
         halfPeriod = int(clipDur * (ri(1, 15)/15))
         period = halfPeriod * (mirror + 1)
-        count = ri(max(1, ((totalFrames-1 - halfPeriod*mirror)//period) - 6),
-                  max(1, (totalFrames-1 - halfPeriod*mirror)//period ))
+        count = ri(max(1, ((totalFramesReq-1 - halfPeriod*mirror)//period) - 6),
+                  max(1, (totalFramesReq-1 - halfPeriod*mirror)//period ))
 
-        noRepDur = max(0, min(total - clipDur, totalFrames - 1 - period*count - halfPeriod*mirror, (period*count * ri(1, 10))//10))
+        noRepDur = max(0, min(total - clipDur, totalFramesReq - 1 - period*count - halfPeriod*mirror, (period*count * ri(1, 10))//10))
         
         #if total - clipDur - noRepDur < 0:
         #    print(f"{total=} {totalFrames=} {mirror=} {clipDur=} {halfPeriod=} {period=} {count=} {noRepDur=}")
@@ -214,26 +225,26 @@ class stackedDataset(Dataset):
         periodLength.extend([0 for i in range(len(frames[begNoRepDur + clipDur:]))])
         assert len(periodLength) == len(finalFrames), str(len(periodLength)) + " "+str(len(finalFrames))
 
-        for i in range(totalFrames - len(finalFrames)):
+        for i in range(totalFramesReq - len(finalFrames)):
             periodLength.append(0)
 
-        finalFrames = self.padFrames(finalFrames, blankStart=False, padEnd=totalFrames-len(finalFrames))
+        finalFrames = self.padFrames(finalFrames, blankStart=False, padEnd=totalFramesReq-len(finalFrames))
 
         assert len(periodLength) == len(finalFrames), str(len(periodLength)) + " "+str(len(finalFrames))
-        assert len(periodLength) == totalFrames, str(len(periodLength)) + " " + str(totalFrames)
+        assert len(periodLength) == totalFramesReq, str(len(periodLength)) + " " + str(totalFramesReq)
 
         labelStack = periodLength
         frameStack = transform(finalFrames, randomize=True, length=len(finalFrames))
 
         assert len(labelStack) == len(frameStack), str(len(labelStack)) + " "+str(len(frameStack))
-        assert len(labelStack) == totalFrames, str(len(labelStack)) + " "+str(totalFrames)
+        assert len(labelStack) == totalFramesReq, str(len(labelStack)) + " "+str(totalFramesReq)
         return frameStack, labelStack
 
     def fillWithCountixVid(self, vidPath, count):
 
         frames = self.getFrames(path = vidPath)
         
-        totalFrames = self.framePerVid *self.length
+        totalFrames = self.framePerVid *self.numFramePerVid
         output_len = min(len(frames), int((ri(7, 10)/10) * totalFrames), totalFrames - 2)
         
         newFrames = []
@@ -242,12 +253,12 @@ class stackedDataset(Dataset):
 
         assert len(newFrames) == output_len
 
-        a = ri(0, totalFrames - output_len-1)
-        b = totalFrames - output_len - a -1
+        a = ri(1, totalFrames - output_len)
+        b = totalFrames - output_len - a
         
         finalFrames = self.padFrames(frames = newFrames, padStart = a, padEnd = b, blankStart=True)
 
-        periodLength = [0]
+        periodLength = []
         period = output_len/count
         if period < 2:
             period = 0
@@ -264,22 +275,25 @@ class stackedDataset(Dataset):
 
     def fillWithBlenderVid(self, vidPath, annotPath):
 
-        finalFrames = self.getFrames(vidPath)
-        finalFrames[0] = np.zeros((self.frame_h, self.frame_w, 3), dtype = "uint8")
+        finalFrames = self.getFrames(vidPath)[1:]
 
         labels = glob.glob(annotPath + '/*')
-        periodLength = list(np.load(labels[0]))
-        periodLength[0] = 0
-        for i in range(len(periodLength)):
-            if periodLength[i] >= 32:
-                periodLength[i] = 0
-        
-        totalFrames = self.length * self.framePerVid
+        periodLength = list(np.load(labels[0]))[1:]
 
-        for i in range(totalFrames - len(finalFrames)):
-            periodLength.append(0)
+        assert len(finalFrames)==len(periodLength)
 
-        finalFrames = self.padFrames(finalFrames, padEnd = totalFrames-len(finalFrames), blankStart=False)
+        totalFrames = self.numFramePerVid * self.framePerVid
+        assert totalFrames >= len(finalFrames) + 1        
+
+        a = ri(1, totalFrames - len(finalFrames))
+        b = totalFrames - len(finalFrames) - a
+
+        finalFrames = self.padFrames(finalFrames, padStart = a, padEnd = b, blankStart=True)
+
+  
+        periodLength = [0 for i in range(a)]\
+                        +periodLength\
+                        +[0 for i in range(b)]
 
         labelStack = periodLength
         frameStack = transform(finalFrames, length=len(finalFrames))
@@ -289,12 +303,17 @@ class stackedDataset(Dataset):
         return frameStack, labelStack
 
     def fill(self, index):
+        '''
+        index [0, len(blenderVideos) => Blender dataset
+        index [len(blenderVideos), len(df)) => Countix
+        index [len(df), ....) => Synthetic
+        '''
         isSynth = index > len(self.blenderVideos) +len(self.df.index)
         isBlender = index <len(self.blenderVideos)
 
         if isSynth and self.synthVidPath is not None:
             #=============synth
-            self.length = ri(1, 300//self.framePerVid)
+            self.numFramePerVid = ri(1, 300//self.framePerVid)
             while True:
                 try :
                     return self.fillWithSynthVid()
@@ -302,20 +321,19 @@ class stackedDataset(Dataset):
                     pass
 
         elif isBlender:
-            vidPath = self.blenderVideos[self.blenderIndex]
+            vidPath = self.blenderVideos[index]
             annotPath = self.annotPrefix + '/' + vidPath[len(self.vidPrefix)+1 : -4]
 
             cap = cv2.VideoCapture(vidPath)
             total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            self.length = 1 + (total//self.framePerVid)
+            self.numFramePerVid = 1 + (total//self.framePerVid)
             cap.release()
 
-            self.blenderIndex += 1
             return self.fillWithBlenderVid(vidPath, annotPath)
 
         else:
             #=============countix
-            dfi = self.df.iloc[[self.countixIndex]]
+            dfi = self.df.iloc[[index - len(self.blenderVideos)]]
             vidPath = self.path_prefix + str(dfi.index.item()) +'.mp4'
             df = dfi.reset_index()
             count = df.loc[0, 'count']
@@ -324,13 +342,12 @@ class stackedDataset(Dataset):
 
             #print(total, self.count)
             if total/count < 2:
-                self.length = 1
+                self.numFramePerVid = 1
             else :
                 lowerLimit = max(1, 1 + (5*count)//self.framePerVid)
                 upperLimit = max(1, 1 + (total // self.framePerVid))
-                self.length = ri(min(upperLimit, lowerLimit), upperLimit)
+                self.numFramePerVid = ri(min(upperLimit, lowerLimit), upperLimit)
             cap.release()
-            self.countixIndex += 1
             return self.fillWithCountixVid(vidPath, count)
 
     def __getitem__(self, index):
