@@ -117,7 +117,7 @@ class stackedDataset(Dataset):
         cap.release()
         return frames       
 
-    def padFrames(self, frames, padStart=1, padEnd=0, blankStart = True):
+    def padFrames(self, frames, padStart=0, padEnd=0, blankStart = True):
         '''
         returns 1 + padStart + frames + padEnd
         
@@ -308,17 +308,13 @@ class stackedDataset(Dataset):
         index [len(blenderVideos), len(df)) => Countix
         index [len(df), ....) => Synthetic
         '''
-        isSynth = index > len(self.blenderVideos) +len(self.df.index)
+        isSynth = index >= len(self.blenderVideos) +len(self.df.index)
         isBlender = index <len(self.blenderVideos)
 
         if isSynth and self.synthVidPath is not None:
             #=============synth
             self.numFramePerVid = ri(1, 300//self.framePerVid)
-            while True:
-                try :
-                    return self.fillWithSynthVid()
-                except:
-                    pass
+            return self.fillWithSynthVid()
 
         elif isBlender:
             vidPath = self.blenderVideos[index]
