@@ -313,8 +313,17 @@ class stackedDataset(Dataset):
 
         if isSynth and self.synthVidPath is not None:
             #=============synth
-            self.numFramePerVid = ri(1, 300//self.framePerVid)
-            return self.fillWithSynthVid()
+            tries = 10
+            for i in range(tries):
+                try:
+                    self.numFramePerVid = ri(1, 300//self.framePerVid)
+                    return self.fillWithSynthVid()
+                except ValueError as e:
+                    print ('Value Error, can be handled')
+                except Exception as e:
+                    print("Other error.")
+                    print(e)
+                    break
 
         elif isBlender:
             vidPath = self.blenderVideos[index]
