@@ -109,7 +109,7 @@ def main_loop(data_loader,
             y1 = y.to(device).float()
             y2 = getPeriodicity(y1).to(device).float()
 
-            y1pred, y2pred = model(X, subidx)
+            y1pred, y2pred = model(X)
 
             countpred = torch.sum((y2pred > 0) / (y1pred + 1e-1), 1)
             count = torch.sum((y2 > 0) / (y1 + 1e-1), 1)
