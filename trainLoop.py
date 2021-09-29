@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 from torch.utils.data import DataLoader
 from IPython.display import clear_output
 import torch.nn.functional as F
@@ -61,6 +61,90 @@ def getStart(periodLength):
     indices = torch.argmax(tmp2, 1, keepdim=True)
     return indices
 
+def batchify(X, y, batch_size, fps):
+    '''
+    X -> images
+    y -> labels
+    fps -> number of frames in each sequence
+    '''
+    Xs = torch.split(X, fps, 1)
+    ys = torch.split(y, fps, 1)
+    if batch_size == 1:
+        batches = len(Xs)
+    else:
+        batches = (len(Xs) - batch_size +1) // batch_size + 1
+    for i in range(batches):
+        yield torch.cat(Xs[i*batch_size: (i + 1) * batch_size]), torch.cat(ys[i*batch_size: (i + 1) * batch_size]) 
+
+def main_loop(data_loader,
+                model,
+                optimizer,
+                batch_size,
+                fpv,
+                trainLosses,
+                use_count_error,
+                epoch,
+                train = True):
+    pbar = tqdm(data_loader, total = len(data_loader))
+    mae = 0
+    mae_count = 0
+    i = 1
+    lossMAE = torch.nn.SmoothL1Loss()
+    lossBCE = torch.nn.BCEWithLogitsLoss()
+
+    for X_total, y_total in pbar:
+        torch.cuda.empty_cache()
+        if train:
+            model.train()
+
+        optimizer.zero_grad()
+
+        mae_count_curr = 0
+        mae_curr = 0
+        tr_loss_curr = 0
+        for subidx, (X, y) in enumerate(batchify(X_total, y_total, batch_size, fpv)):
+
+            X = X.to(device).float()
+
+            y1 = y.to(device).float()
+            y2 = getPeriodicity(y1).to(device).float()
+
+            y1pred, y2pred = model(X, subidx)
+
+            countpred = torch.sum((y2pred > 0) / (y1pred + 1e-1), 1)
+            count = torch.sum((y2 > 0) / (y1 + 1e-1), 1)
+
+            loss1 = lossMAE(y1pred, y1)
+            loss2 = lossBCE(y2pred, y2)
+            loss3 = torch.sum(torch.div(torch.abs(countpred - count), (count + 1e-1)))
+
+            loss = loss1 + 5*loss2
+
+            if use_count_error:
+                loss = loss + loss3
+
+            if train:
+                optimizer.zero_grad()
+                loss.backward()                
+                optimizer.step()
+
+            mae_curr += loss1.item()
+            mae_count_curr += loss3.item()
+            tr_loss_curr += loss.item()
+
+            del y1pred, y2pred, countpred, count
+
+        trainLosses.append(tr_loss_curr)
+        mae = mae + mae_curr
+        mae_count = mae_count + mae_count_curr
+        i = i + 1
+        pbar.set_postfix({'Epoch': epoch,
+                        'MAE_period': (mae/i),
+                        'MAE_count' : (mae_count/i),
+                        'Mean Tr Loss':np.mean(trainLosses[-i+1:])})
+        del X_total, y_total
+        torch.cuda.empty_cache()
+
 def training_loop(n_epochs,
                   model,
                   train_set,
@@ -108,12 +192,12 @@ def training_loop(n_epochs,
     lossMAE = torch.nn.SmoothL1Loss()
     lossBCE = torch.nn.BCEWithLogitsLoss()
     train_loader = DataLoader(train_set, 
-                              batch_size=batch_size, 
+                              batch_size=1, 
                               num_workers=num_workers, 
                               shuffle = True)
     
     val_loader = DataLoader(val_set,
-                            batch_size = batch_size,
+                            batch_size = 1,
                             num_workers=num_workers,
                             drop_last = False,
                             shuffle = True)
@@ -126,130 +210,29 @@ def training_loop(n_epochs,
     for epoch in tqdm(range(currEpoch, n_epochs + currEpoch)):
         #train loop
         if train :
-            pbar = tqdm(train_loader, total = len(train_loader))
-            mae = 0
-            mae_count = 0
-            i = 1
-                
-            for X_total, y_total in pbar:
-                torch.cuda.empty_cache()
-                totalparts = X_total.shape[1]//fpv
-
-                model.init_params(batch_size)
-                model.train()
-
-                optimizer.zero_grad()
-
-                mae_count_curr = 0
-                mae_curr = 0
-                tr_loss_curr = 0
-                for subidx in range(totalparts):
-                    print(subidx)
-                    
-                    X = X_total[:, subidx*fpv: (subidx+1)*fpv, :, :, :]
-                    y = y_total[:, subidx*fpv: (subidx+1)*fpv, :]
-                    X = X.transpose(1, 2)
-                    X = X.to(device).float()
-
-                    y1 = y.to(device).float()
-                    y2 = getPeriodicity(y1).to(device).float()
-
-                    y1pred, y2pred = model(X, subidx)
-
-                    countpred = torch.sum((y2pred > 0) / (y1pred + 1e-1), 1)
-                    count = torch.sum((y2 > 0) / (y1 + 1e-1), 1)
-
-                    loss1 = lossMAE(y1pred, y1)
-                    loss2 = lossBCE(y2pred, y2)
-                    loss3 = torch.sum(torch.div(torch.abs(countpred - count), (count + 1e-1)))
-
-                    loss = loss1 + 5*loss2
-
-                    if use_count_error:
-                        loss = loss + loss3
-
-                    if subidx == totalparts-1:
-                        loss.backward()
-                    else :
-                        loss.backward(retain_graph = True)
-
-                    mae_curr += loss1.item()
-                    mae_count_curr += loss3.item()
-                    tr_loss_curr += loss.item()
-
-                    del y1pred, y2pred, countpred, count
-
-                optimizer.step()
-                trainLosses.append(tr_loss_curr)
-                mae = mae + mae_curr
-                mae_count = mae_count + mae_count_curr
-                i = i + 1
-                pbar.set_postfix({'Epoch': epoch,
-                                'MAE_period': (mae/i),
-                                'MAE_count' : (mae_count/i),
-                                'Mean Tr Loss':np.mean(trainLosses[-i+1:])})
-                del X_total, y_total
-                torch.cuda.empty_cache()
+            main_loop(train_loader,
+                        model,
+                        optimizer,
+                        batch_size,
+                        fpv,
+                        trainLosses,
+                        use_count_error,
+                        epoch,
+                        train = True)
 
         if validate:
             #validation loop
             with torch.no_grad():
-                mae = 0
-                mae_count = 0
-                i = 1
-                pbar = tqdm(val_loader, total = len(val_loader))
-
-                for X_total, y_total in pbar:
-                    torch.cuda.empty_cache()
-                    totalparts = X_total.shape[1]//fpv
-
-                    model.init_params(batch_size)
-                    model.eval()
-
-                    mae_count_curr = 0
-                    mae_curr = 0
-                    val_loss_curr = 0
-                    for subidx in range(totalparts):
-                        print(subidx)
-
-                        X = X_total[:, subidx*fpv: (subidx+1)*fpv, :, :, :]
-                        y = y_total[:, subidx*fpv: (subidx+1)*fpv, :]
-                        X = X.transpose(1, 2)
-                        X = X.to(device).float()
-
-                        y1 = y.to(device).float()
-                        y2 = getPeriodicity(y1).to(device).float()
-
-                        y1pred, y2pred = model(X, subidx)
-
-                        countpred = torch.sum((y2pred > 0) / (y1pred + 1e-1), 1)
-                        count = torch.sum((y2 > 0) / (y1 + 1e-1), 1)
-
-                        loss1 = lossMAE(y1pred, y1)
-                        loss2 = lossBCE(y2pred, y2)
-                        loss3 = torch.sum(torch.div(torch.abs(countpred - count), (count + 1e-1)))
-
-                        loss = loss1 + 5*loss2
-
-                        if use_count_error:
-                            loss = loss + loss3
-
-                        mae_curr += loss1.item()
-                        mae_count_curr += loss3.item()
-                        val_loss_curr += loss.item()
-                        del y1pred, y2pred, countpred, count
-
-                    valLosses.append(val_loss_curr)
-                    mae = mae + mae_curr
-                    mae_count = mae_count + mae_count_curr
-                    i = i + 1
-                    pbar.set_postfix({'Epoch': epoch,
-                                    'MAE_period': (mae/i),
-                                    'MAE_count' : (mae_count/i),
-                                    'Mean Val Loss':np.mean(valLosses[-i+1:])})
-                    del X_total, y_total
-                    torch.cuda.empty_cache()
-
+                main_loop(val_loader,
+                            model,
+                            optimizer,
+                            batch_size,
+                            fpv,
+                            trainLosses,
+                            use_count_error,
+                            epoch,
+                            train = False)
+    
         #save checkpoint
         if saveCkpt:
             checkpoint = {
