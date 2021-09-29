@@ -67,6 +67,8 @@ class stackedDataset(Dataset):
                 synthSize = 1000,
                 blenderVidDir = None,
                 blenderAnnotDir = None,
+                frame_h = 182,
+                frame_w = 182,
                 framePerVid=64):
 
         super().__init__()
@@ -100,8 +102,8 @@ class stackedDataset(Dataset):
 
         #=====================General Setup==========================
         self.framePerVid = framePerVid
-        self.frame_h = 182
-        self.frame_w = 182
+        self.frame_h = frame_h
+        self.frame_w = frame_w
 
     def getFrames(self, path = None, cap = None):
         if cap is None:
