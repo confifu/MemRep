@@ -156,6 +156,7 @@ def training_loop(n_epochs,
                   ckpt_name = 'ckpt',
                   use_count_error = True,
                   saveCkpt= True,
+                  resultDir="",
                   train = True,
                   validate = True,
                   lastCkptPath = None):
@@ -242,8 +243,7 @@ def training_loop(n_epochs,
                 'trainLosses' : trainLosses,
                 'valLosses' : valLosses
             }
-            torch.save(checkpoint, 
-                       'checkpoint/' + ckpt_name + str(epoch) + '.pt')
+            torch.save(checkpoint, resultDir + ckpt_name + str(epoch) + '.pt')
         
         #lr_scheduler.step()
 
