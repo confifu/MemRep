@@ -245,6 +245,9 @@ class stackedDataset(Dataset):
     def fillWithCountixVid(self, vidPath, count):
 
         frames = self.getFrames(path = vidPath)
+        if len(frames) == 0:
+            #try again
+            frames = self.getFrames(path = vidPath)
         
         totalFrames = self.framePerVid *self.numFramePerVid
         output_len = min(len(frames), int((ri(7, 10)/10) * totalFrames), totalFrames - 2)
@@ -358,7 +361,17 @@ class stackedDataset(Dataset):
             return self.fillWithCountixVid(vidPath, count)
 
     def __getitem__(self, index):
-        X, y = self.fill(index)
+        tries = 10
+        for i in range(tries):
+            try:
+                if i == 0:
+                    X, y = self.fill(index)
+                else:
+                    X, y = self.fill(ri(0, self.__len__()))
+                break
+            except:
+                pass
+
         X = torch.cat(X)
         y = torch.FloatTensor(y).unsqueeze(-1)
         return X, y
