@@ -90,6 +90,7 @@ def main_loop(data_loader,
     mae_count = 0
     i = 1
     lossMAE = torch.nn.SmoothL1Loss()
+    lossCE = torch.nn.CrossEntropyLoss()
     lossBCE = torch.nn.BCEWithLogitsLoss()
 
     for X_total, y_total in pbar:
@@ -107,14 +108,17 @@ def main_loop(data_loader,
             X = X.to(device).float()
 
             y1 = y.to(device).float()
+
+            y1 = torch.where(y1 < 32, y1, torch.tensor(0).float().to(device))
             y2 = getPeriodicity(y1).to(device).float()
 
             y1pred, y2pred = model(X)
 
-            countpred = torch.sum((y2pred > 0) / (y1pred + 1e-1), 1)
+            countpred = torch.sum((y2pred > 0) / (torch.argmax(y1pred, dim = 1).unsqueeze(-1) + 1e-1), 1)
             count = torch.sum((y2 > 0) / (y1 + 1e-1), 1)
 
-            loss1 = lossMAE(y1pred, y1)
+            y1 = y1.squeeze(-1).long()
+            loss1 = lossCE(y1pred, y1)
             loss2 = lossBCE(y2pred, y2)
             loss3 = torch.sum(torch.div(torch.abs(countpred - count), (count + 1e-1)))
 
