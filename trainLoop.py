@@ -81,7 +81,7 @@ def main_loop(data_loader,
                 optimizer,
                 batch_size,
                 fpv,
-                trainLosses,
+                losses,
                 use_count_error,
                 epoch,
                 train = True):
@@ -102,7 +102,7 @@ def main_loop(data_loader,
 
         mae_count_curr = 0
         mae_curr = 0
-        tr_loss_curr = 0
+        loss_curr = 0
         for subidx, (X, y) in enumerate(batchify(X_total, y_total, batch_size, fpv)):
 
             X = X.to(device).float()
@@ -134,18 +134,18 @@ def main_loop(data_loader,
 
             mae_curr += loss1.item()
             mae_count_curr += loss3.item()
-            tr_loss_curr += loss.item()
+            loss_curr += loss.item()
 
             del y1pred, y2pred, countpred, count
 
-        trainLosses.append(tr_loss_curr)
+        losses.append(loss_curr)
         mae = mae + mae_curr
         mae_count = mae_count + mae_count_curr
         i = i + 1
         pbar.set_postfix({'Epoch': epoch,
                         'MAE_period': (mae/i),
                         'MAE_count' : (mae_count/i),
-                        'Mean Tr Loss':np.mean(trainLosses[-i+1:])})
+                        'Mean Loss':np.mean(losses[-i+1:])})
         del X_total, y_total
         torch.cuda.empty_cache()
 
@@ -215,6 +215,7 @@ def training_loop(n_epochs,
     for epoch in tqdm(range(currEpoch, n_epochs + currEpoch)):
         #train loop
         if train :
+            print("Training phase")
             main_loop(train_loader,
                         model,
                         optimizer,
@@ -225,15 +226,16 @@ def training_loop(n_epochs,
                         epoch,
                         train = True)
 
+        #validation loop
         if validate:
-            #validation loop
+            print("Validation phase")
             with torch.no_grad():
                 main_loop(val_loader,
                             model,
                             optimizer,
                             batch_size,
                             fpv,
-                            trainLosses,
+                            valLosses,
                             use_count_error,
                             epoch,
                             train = False)
