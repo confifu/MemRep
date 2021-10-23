@@ -73,7 +73,7 @@ def predSmall(frames, model, frameh, framew):
         model.eval()
         y1pred, y2pred, sim = model(X.unsqueeze(0).to(device), True)
     
-    periodLength = y1pred.squeeze()
+    periodLength = torch.argmax(y1pred, dim = 1).squeeze()
     periodicity = y2pred > 0
     #print(periodLength.shape)
     #print(periodLength.squeeze())
